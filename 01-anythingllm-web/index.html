@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnythingLLM 工作台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 20px; color: #1c1c21; background: #fafafa; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+  h1 { font-size: 20px; margin: 0; }
+  select, button, input[type=text], textarea { font-family: inherit; }
+  select { padding: 7px 12px; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-size: 13px; min-width: 220px; }
+  button { padding: 9px 18px; font-size: 14px; border: none; border-radius: 6px; background: #2a69a7; color: #fff; cursor: pointer; }
+  button:hover:not(:disabled) { background: #1f558c; }
+  button:disabled { background: #aab; cursor: not-allowed; }
+  button.ghost { background: #fff; color: #2a69a7; border: 1px solid #2a69a7; }
+  button.ghost:hover:not(:disabled) { background: #eef3fa; }
+  .card { background: #fff; border: 1px solid #e3e3e8; border-radius: 8px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; margin: 0 0 12px; color: #555; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  input[type=file] { flex: 1; min-width: 200px; font-size: 13px; }
+  #log, #chatLog { background: #1c1c21; color: #d6e9f5; border-radius: 6px; padding: 12px; font: 12px/1.55 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 360px; overflow: auto; }
+  .ok { color: #6ee7a8; } .err { color: #ff9b9b; } .dim { color: #8aa; } .ws { color: #ffd479; }
+  .chat-row { display: flex; gap: 8px; align-items: flex-end; }
+  #chatInput { flex: 1; min-height: 60px; padding: 10px; border: 1px solid #ccc; border-radius: 6px; resize: vertical; font-size: 14px; }
+  #chatLog { max-height: 400px; min-height: 200px; margin-bottom: 10px; }
+  #chatLog .user { color: #a9cbea; }
+  #chatLog .assistant { color: #f0f0f0; }
+  #chatLog .src { color: #8aa; font-size: 11px; }
+  #chatLog .typing { color: #ffd479; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .tab { padding: 6px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .tab.active { background: #2a69a7; color: #fff; border-color: #2a69a7; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>AnythingLLM 工作台</h1>
+    <select id="wsSelect"><option value="">加载中...</option></select>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="chat">💬 对话</div>
+    <div class="tab" data-tab="upload">📤 上传文档</div>
+  </div>
+
+  <div class="panel active" id="panel-chat">
+    <div class="card">
+      <h2>与工作区对话</h2>
+      <div id="chatLog"><span class="dim">(选择工作区后，在这里提问吧)</span></div>
+      <div class="chat-row">
+        <textarea id="chatInput" placeholder="输入问题，Ctrl/Cmd+Enter 发送"></textarea>
+        <button id="chatBtn" disabled>发送</button>
+        <button id="chatClear" class="ghost">清空</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-upload">
+    <div class="card">
+      <h2>上传文档并向量化</h2>
+      <div class="row">
+        <input type="file" id="file">
+        <button id="upBtn" disabled>上传并向量化</button>
+      </div>
+    </div>
+    <div class="card">
+      <div id="log">(等待操作)</div>
+    </div>
+  </div>
+
+<script>
+const API_BASE = "http://localhost:3001/api";
+// API Key 属于敏感信息，禁止硬编码后提交到公开仓库。
+// 首次打开页面时弹窗输入，仅保存在本机浏览器 localStorage 中。
+let API_KEY = localStorage.getItem("ANYTHINGLLM_API_KEY") || "";
+if (!API_KEY) {
+  API_KEY = prompt("请输入 AnythingLLM API Key（仅保存在本机浏览器）：") || "";
+  if (API_KEY) localStorage.setItem("ANYTHINGLLM_API_KEY", API_KEY);
+}
+
+async function req(path, opts = {}) {
+  const headers = { Authorization: "Bearer " + API_KEY, ...(opts.headers || {}) };
+  const res = await fetch(API_BASE + path, { ...opts, headers });
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) { const e = new Error("HTTP " + res.status); e.status = res.status; e.body = data; throw e; }
+  return data;
+}
+
+// --- Tabs ---
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  document.getElementById("panel-" + t.dataset.tab).classList.add("active");
+});
+
+// --- Workspace selector ---
+const wsSelect = document.getElementById("wsSelect");
+let currentSlug = "";
+let currentName = "";
+
+async function loadWorkspaces() {
+  try {
+    const data = await req("/v1/workspaces");
+    const ws = data.workspaces || [];
+    if (!ws.length) { wsSelect.innerHTML = "<option>没有工作区</option>"; return; }
+    wsSelect.innerHTML = ws.map(w => `<option value="${w.slug}">${w.name}</option>`).join("");
+    currentSlug = ws[0].slug;
+    currentName = ws[0].name;
+    wsSelect.value = currentSlug;
+    chatBtn.disabled = false;
+  } catch (e) {
+    wsSelect.innerHTML = `<option>加载失败: ${e.message}</option>`;
+  }
+}
+wsSelect.onchange = () => { currentSlug = wsSelect.value; };
+loadWorkspaces();
+
+// ============================================================
+// Chat
+// ============================================================
+const chatLog = document.getElementById("chatLog");
+const chatInput = document.getElementById("chatInput");
+const chatBtn = document.getElementById("chatBtn");
+
+function appendChat(text, cls) {
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = text + "\n";
+  chatLog.appendChild(span);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+chatBtn.onclick = sendChat;
+chatInput.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); sendChat(); }
+});
+document.getElementById("chatClear").onclick = () => { chatLog.innerHTML = '<span class="dim">(对话已清空)</span>'; };
+
+async function sendChat() {
+  const msg = chatInput.value.trim();
+  if (!msg || !currentSlug) return;
+  chatInput.value = "";
+  appendChat("你: " + msg, "user");
+  chatBtn.disabled = true;
+
+  const typingEl = document.createElement("span");
+  typingEl.className = "typing";
+  typingEl.textContent = "AI 思考中...";
+  chatLog.appendChild(typingEl);
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  try {
+    const data = await req("/v1/workspace/" + currentSlug + "/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: msg, mode: "chat", sessionId: "web-" + currentSlug })
+    });
+    typingEl.remove();
+    appendChat("AI: " + (data.textResponse || "(无回答)"), "assistant");
+    if (data.sources && data.sources.length) {
+      appendChat("📎 来源: " + data.sources.map(s => s.title).join(", "), "src");
+    }
+  } catch (e) {
+    typingEl.remove();
+    appendChat("❌ " + e.message, "err");
+  } finally { chatBtn.disabled = false; }
+}
+
+// ============================================================
+// Upload
+// ============================================================
+const log = document.getElementById("log");
+const fileInput = document.getElementById("file");
+const upBtn = document.getElementById("upBtn");
+
+function setLog(html) { log.innerHTML = html; }
+function append(line, cls) {
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = line + "\n";
+  log.appendChild(span);
+  log.scrollTop = log.scrollHeight;
+}
+function showJSON(obj) { try { append(JSON.stringify(obj, null, 2), "dim"); } catch { append(String(obj), "dim"); } }
+
+function extractEmbeds(obj) {
+  const out = [];
+  (function visit(o) {
+    if (!o || typeof o !== "object") return;
+    if (o.location && (o.name || o.title)) { out.push({ location: o.location, name: o.name || o.title }); return; }
+    if (Array.isArray(o)) { o.forEach(visit); } else { Object.values(o).forEach(visit); }
+  })(obj);
+  return out;
+}
+
+fileInput.onchange = () => { upBtn.disabled = !fileInput.files.length || !currentSlug; };
+
+upBtn.onclick = async () => {
+  const file = fileInput.files[0];
+  if (!file || !currentSlug) return;
+  upBtn.disabled = true;
+  setLog("");
+  append("目标工作区：" + currentName + " (" + currentSlug + ")", "ws");
+  append("开始处理：" + file.name);
+
+  try {
+    append("\n[1/2] 上传文档...");
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    const upRes = await req("/v1/document/upload", { method: "POST", body: fd });
+    showJSON(upRes);
+
+    const embeds = extractEmbeds(upRes);
+    if (!embeds.length) throw new Error("上传响应中未提取到 location/name，请查看上方原始响应。");
+    append("→ 提取到 " + embeds.length + " 个文档引用，开始向量化...", "ws");
+
+    append("\n[2/2] 向量化嵌入...");
+    const embRes = await req("/v1/workspace/" + currentSlug + "/update-embeddings", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ embeds })
+    });
+    showJSON(embRes);
+
+    append("\n✅ 完成！文档已上传并向量化。", "ok");
+  } catch (e) {
+    append("\n❌ 失败：" + e.message, "err");
+    if (e.body !== undefined) { append("响应体：", "err"); showJSON(e.body); }
+  } finally { upBtn.disabled = false; }
+};
+</script>
+</body>
+</html>

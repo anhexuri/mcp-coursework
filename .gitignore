@@ -1,0 +1,22 @@
+# --- Python（课程二）---
+.venv/
+__pycache__/
+*.pyc
+.env
+.trae/
+
+# --- Go（课程三）---
+*.exe
+*.test
+*.out
+/dist/
+
+# --- 运行时数据与压缩包 ---
+*.db
+*.db.tmp
+*.zip
+
+# --- 编辑器 / 系统 ---
+.idea/
+.vscode/
+.DS_Store
