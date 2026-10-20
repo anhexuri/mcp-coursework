@@ -1,0 +1,86 @@
+graph TD
+    %% LLM 架构图
+    A[LLM 用户输入] --> B[chat-completions API]
+    B --> C{是否有工具调用?}
+    
+    %% 工具调用分支
+    C -->|是| D[解析 tool_calls]
+    D --> E[执行 TOOL_IMPL 函数]
+    E --> F[返回工具结果]
+    F --> G[继续对话]
+    G --> B
+    
+    %% 直接回答分支
+    C -->|否| H[直接返回回答]
+    H --> I[输出最终结果]
+    
+    %% 工具实现层
+    subgraph "TOOL_IMPL 工具实现"
+        J[getCwd]
+        K[listDir]
+        L[getFileType]
+        M[readFile]
+        N[createFile]
+        O[editFile]
+        P[mkdir]
+        Q[rmdir]
+        R[deleteFile]
+        S[rename]
+    end
+    
+    %% 安全机制
+    subgraph "安全机制"
+        T[safe_path 路径验证]
+        U[BASE_DIR 沙箱限制]
+        V[TEXT_EXTS 文件类型白名单]
+    end
+    
+    %% 配置层
+    subgraph "配置管理"
+        W[config.ini]
+        X[OpenAI 客户端]
+        Y[模型配置]
+    end
+    
+    %% 连接关系
+    D --> J
+    D --> K
+    D --> L
+    D --> M
+    D --> N
+    D --> O
+    D --> P
+    D --> Q
+    D --> R
+    D --> S
+    
+    J --> T
+    K --> T
+    L --> T
+    M --> T
+    N --> T
+    O --> T
+    P --> T
+    Q --> T
+    R --> T
+    S --> T
+    
+    T --> U
+    V --> T
+    
+    W --> X
+    X --> Y
+    X --> B
+    
+    %% 样式
+    classDef user fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef llm fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef tool fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef security fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef config fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    
+    class A user
+    class B,C,D,E,F,G,H,I llm
+    class J,K,L,M,N,O,P,Q,R,S tool
+    class T,U,V security
+    class W,X,Y config
