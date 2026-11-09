@@ -1,9 +1,18 @@
-# --- Python（课程二）---
+# --- Python（课程二 / 课程四）---
 .venv/
 __pycache__/
 *.pyc
 .env
 .trae/
+config.ini
+
+# --- 课程四运行时数据（会话 / 上下文归档 / 解包出的 CLI）---
+.agents/sessions/
+.agents/context/
+build/
+dist/
+installer/
+.unifypy/
 
 # --- Go（课程三）---
 *.exe

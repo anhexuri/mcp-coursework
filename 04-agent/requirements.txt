@@ -1,0 +1,8 @@
+openai>=3.40
+textual>=0.80
+requests>=2.28
+trafilatura>=1.6
+mcp>=2.0
+# httpx2 依赖 brotli>=1.2.0（1.1.0 的 process() 不支持 output_buffer_limit）
+brotli>=1.2.0
+httpx2>=2.16.0
